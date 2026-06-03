@@ -155,17 +155,38 @@ def send_email(config:DictConfig, html:str):
     today = datetime.datetime.now().strftime('%Y/%m/%d')
     msg['Subject'] = Header(f'Daily arXiv {today}', 'utf-8').encode()
 
+    server = None
     try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-    except Exception as e:
-        logger.debug(f"Failed to use TLS. {e}\nTry to use SSL.")
+        # 先尝试 TLS
         try:
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-        except Exception as e:
-            logger.debug(f"Failed to use SSL. {e}\nTry to use plain text.")
             server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            logger.debug(f"已连接到 {smtp_server}，使用 TLS")
+        except (smtplib.SMTPServerDisconnected, smtplib.SMTPException, OSError) as e:
+            logger.debug(f"TLS 连接失败: {e}。尝试 SSL...")
+            if server:
+                try:
+                    server.quit()
+                except:
+                    pass
+            # 尝试 SSL
+            try:
+                server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+                logger.debug(f"已连接到 {smtp_server}，使用 SSL")
+            except (smtplib.SMTPServerDisconnected, smtplib.SMTPException, OSError) as e:
+                logger.debug(f"SSL 连接失败: {e}。尝试纯文本 SMTP...")
+                server = smtplib.SMTP(smtp_server, smtp_port)
+                logger.debug(f"已连接到 {smtp_server}，使用纯文本 SMTP")
 
-    server.login(sender, password)
-    server.sendmail(sender, [receiver], msg.as_string())
-    server.quit()
+        server.login(sender, password)
+        server.sendmail(sender, [receiver], msg.as_string())
+        logger.info(f"邮件已成功发送到 {receiver}")
+    except Exception as e:
+        logger.error(f"邮件发送失败: {e}")
+        raise
+    finally:
+        if server:
+            try:
+                server.quit()
+            except:
+                pass
